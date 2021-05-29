@@ -2,6 +2,7 @@ import isbnlib
 import re
 import requests
 import datetime
+from TwitterBotErrors import FindISBNError, GoodreadsError, AmazonError, GetEditionError, GetAvailabilityError, FindAvailableWorkError
 
 
 class ISBNFinder:
@@ -10,33 +11,54 @@ class ISBNFinder:
 
     @staticmethod
     def amazon(url):
+        # raise AmazonError(url=url, error="foobar")
         try:
             return (
                 re.findall("/dp/([0-9X]{10})/?", url) or
                 re.findall("/product/([0-9X]{10})/?", url)
             )
         except Exception as e:
-            print(e)
+            raise AmazonError(url=url, error=e)
 
     @staticmethod
     def goodreads(url):
-        if re.findall("/book/show/([0-9]+)", url):
-            return re.findall("ISBN13.*>([0-9X-]+)", requests.get(url).text)
-        return []
+        # raise GoodreadsError(url=url, error="foobar")
+        try:
+            if re.findall("/book/show/([0-9]+)", url):
+                return re.findall("ISBN13.*>([0-9X-]+)", requests.get(url).text)
+            return []
+        except Exception as e:
+            raise GoodreadsError(url=url, error=e)
 
     @classmethod
     def find_isbns(cls, text):
-        isbns = []
-        for token in text.split():
-            if token.startswith("http"):
-                url = requests.head(token).headers.get("Location") or token
-                for service_name in cls.SERVICES:
-                    _isbns = getattr(cls, service_name)(url)
-                    isbns.extend(_isbns)
-            else:
-                isbns.extend(isbnlib.get_isbnlike(token, level="normal"))
-        return [isbnlib.canonical(isbn) for isbn in isbns
-                if isbnlib.is_isbn10(isbn) or isbnlib.is_isbn13(isbn)]
+        try:
+            isbns = []
+            for token in text.split():
+                try:
+                    if token.startswith("http"):
+                        try:
+                            url = requests.head(token).headers.get("Location") # if is redirect url such as bitly
+                            if not url: 
+                                url = token
+                        except:
+                            url = token
+
+                        for service_name in cls.SERVICES:
+                            try:
+                                _isbns = getattr(cls, service_name)(url)
+                                isbns.extend(_isbns)
+                            except Exception as e:
+                                # LOGGER.log(e)
+                                continue
+                    else:
+                        isbns.extend(isbnlib.get_isbnlike(token, level="normal"))
+                except Exception as e:
+                    raise e
+            return [isbnlib.canonical(isbn) for isbn in isbns
+                    if isbnlib.is_isbn10(isbn) or isbnlib.is_isbn13(isbn)]    
+        except Exception as e:
+            raise FindISBNError(text=text, error=e)
 
 
 class InternetArchive:
@@ -54,8 +76,7 @@ class InternetArchive:
             ed["isbn"] = ed and isbn
             return ed
         except Exception as e:
-            print("Failed to fetch openlibrary edition for: %s" % isbn)
-        return {}
+            raise GetEditionError(isbn=isbn, error=e)
 
     @classmethod
     def get_availability(cls, identifier):
@@ -67,7 +88,7 @@ class InternetArchive:
                 if status.get(mode):
                     return mode
         except Exception as e:
-            print("Failed to fetch availability for: %s" % identifier)
+            raise GetAvailabilityError(identifier=identifier, error=e)
 
     @classmethod
     def find_available_work(cls, book):
@@ -96,9 +117,8 @@ class InternetArchive:
             if matches and matches["response"]["docs"]:
                 books = matches["response"]["docs"]
                 return next(book for book in books if book.get("openlibrary_work"))
-        except Exception:
-            print("Error fetching IA work")
-        return {}
+        except Exception as e:
+            raise FindAvailableWorkError(book=book, error=e)
 
 
 class Logger:
