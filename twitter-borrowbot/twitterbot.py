@@ -46,7 +46,7 @@ def authenticate():
 
 class Tweet:
     @staticmethod
-    def _tweet(mention, message, debug=True):
+    def _tweet(mention, message, debug=False):
         if not mention.user.screen_name or not mention.id:
             raise SendTweetError(mention=mention, error="Given mention is missing either a screen name or a status ID")
         msg = "Hi 👋 @%s %s" % (mention.user.screen_name, message)
@@ -58,10 +58,10 @@ class Tweet:
                     auto_populate_reply_metadata=True
                 )
             except Exception as e:
-                raise SendTweetError(mention=mention, msg=msg, error=e)
+                raise SendTweetError(mention=mention, message=msg, error=e)
         else:
             print(msg.replace("\n", " "))
-        Logger.log_tweet(filename=TWEET_LOGS, message=msg)
+        Logger.log_tweet(filename=TWEET_LOGS, original_mention=mention.full_text, tweet=msg)
 
     @classmethod
     def edition_available(cls, mention, edition):

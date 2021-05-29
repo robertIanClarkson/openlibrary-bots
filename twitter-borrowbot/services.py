@@ -128,10 +128,11 @@ class InternetArchive:
 class Logger:
 
     @staticmethod
-    def log_tweet(filename, message):
+    def log_tweet(filename, original_mention, tweet):
         f = open(filename, "a")
         f.write(str(datetime.datetime.now()) + " | ")
-        f.write(str(message.replace("\n", " ")) + "\n")
+        f.write(str(original_mention.replace("\n", " ")) + " | ")
+        f.write(str(tweet.replace("\n", " ")) + "\n")
         f.close()
         
     @staticmethod
