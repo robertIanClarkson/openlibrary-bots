@@ -3,7 +3,9 @@ import re
 import requests
 import datetime
 from TwitterBotErrors import FindISBNError, GoodreadsError, AmazonError, GetEditionError, GetAvailabilityError, FindAvailableWorkError
+import traceback
 
+ERROR_LOGS = "./logs/error_logs.txt"
 
 class ISBNFinder:
 
@@ -11,7 +13,6 @@ class ISBNFinder:
 
     @staticmethod
     def amazon(url):
-        # raise AmazonError(url=url, error="foobar")
         try:
             return (
                 re.findall("/dp/([0-9X]{10})/?", url) or
@@ -22,7 +23,6 @@ class ISBNFinder:
 
     @staticmethod
     def goodreads(url):
-        # raise GoodreadsError(url=url, error="foobar")
         try:
             if re.findall("/book/show/([0-9]+)", url):
                 return re.findall("ISBN13.*>([0-9X-]+)", requests.get(url).text)
@@ -37,6 +37,7 @@ class ISBNFinder:
             for token in text.split():
                 try:
                     if token.startswith("http"):
+                        # this needs to be recursive to get root url
                         try:
                             url = requests.head(token).headers.get("Location") # if is redirect url such as bitly
                             if not url: 
@@ -48,8 +49,11 @@ class ISBNFinder:
                             try:
                                 _isbns = getattr(cls, service_name)(url)
                                 isbns.extend(_isbns)
-                            except Exception as e:
-                                # LOGGER.log(e)
+                            except (GoodreadsError, AmazonError) as custom_err:
+                                Logger.log_error(filename=ERROR_LOGS, message=custom_err)
+                                continue
+                            except Exception:
+                                Logger.log_error(filename=ERROR_LOGS, message=traceback.format_exc())
                                 continue
                     else:
                         isbns.extend(isbnlib.get_isbnlike(token, level="normal"))
@@ -123,25 +127,16 @@ class InternetArchive:
 
 class Logger:
 
-    DELIMITER = "(:)>>--++--++--++--++--++--<<(:)"
-
-    @classmethod
-    def __init__(cls, tweet_filename, error_filename):
-        cls.tweet_filename = tweet_filename
-        cls.error_filename = error_filename
-
-    @classmethod
-    def log_tweet(cls, message):
-        f = open(cls.tweet_filename, "a")
+    @staticmethod
+    def log_tweet(filename, message):
+        f = open(filename, "a")
         f.write(str(datetime.datetime.now()) + " | ")
-        f.write(message + "\n")
-        f.write(cls.DELIMITER + "\n")
+        f.write(str(message.replace("\n", " ")) + "\n")
         f.close()
         
-    @classmethod
-    def log_error(cls, message):
-        f = open(cls.error_filename, "a")
+    @staticmethod
+    def log_error(filename, message):
+        f = open(filename, "a")
         f.write(str(datetime.datetime.now()) + " | ")
-        f.write(message + "\n")
-        f.write(cls.DELIMITER + "\n")
+        f.write(str(message) + "\n")
         f.close()

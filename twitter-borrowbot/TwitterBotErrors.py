@@ -1,6 +1,3 @@
-# from os import error
-# from services import logger
-
 class Error(Exception):
     pass
 

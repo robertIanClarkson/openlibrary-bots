@@ -3,6 +3,7 @@ import os
 import time
 import tweepy
 from dotenv import load_dotenv
+import traceback
 
 from services import InternetArchive, ISBNFinder, Logger
 from TwitterBotErrors import TweepyAuthenticationError, FileIOError, LastSeenIDError, GetMentionsError, TooManyMentionsError, FindISBNError, GetTweetError, GetEditionError, FindAvailableWorkError, SendTweetError
@@ -15,7 +16,8 @@ STATE_FILE = 'last_seen_id.txt'
 SLEEP_TIME = 15 # in seconds 
 MENTION_LIMIT = 128 
 
-LOGGER = Logger("./logs/tweet_logs.txt", "./logs/error_logs.txt")
+TWEET_LOGS = "./logs/tweet_logs.txt" 
+ERROR_LOGS = "./logs/error_logs.txt"
 
 API = None
 
@@ -44,7 +46,7 @@ def authenticate():
 
 class Tweet:
     @staticmethod
-    def _tweet(mention, message, debug=False):
+    def _tweet(mention, message, debug=True):
         if not mention.user.screen_name or not mention.id:
             raise SendTweetError(mention=mention, error="Given mention is missing either a screen name or a status ID")
         msg = "Hi 👋 @%s %s" % (mention.user.screen_name, message)
@@ -58,13 +60,12 @@ class Tweet:
             except Exception as e:
                 raise SendTweetError(mention=mention, msg=msg, error=e)
         else:
-            print(msg)
-        LOGGER.log_tweet(msg)
+            print(msg.replace("\n", " "))
+        Logger.log_tweet(filename=TWEET_LOGS, message=msg)
 
     @classmethod
     def edition_available(cls, mention, edition):
         action = READ_OPTIONS[edition.get("availability")]
-        print('Replying: Edition %sable' % action)
         cls._tweet(
             mention,
             "you're in luck. " +
@@ -94,7 +95,6 @@ class Tweet:
 
     @classmethod
     def edition_not_found(cls, mention):
-        # print('Replying: Book Not found')
         cls._tweet(
             mention,
             "sorry, I was unable to spot any books! " +
@@ -149,85 +149,93 @@ def get_latest_mentions(since=None):
         mentions = API.mentions_timeline(since, tweet_mode="extended")
         if len(mentions) >= MENTION_LIMIT:
             raise TooManyMentionsError(since=since, length=len(mentions), limit=MENTION_LIMIT)
-    except (FileIOError, LastSeenIDError) as e:
-        # don't proceed. We don't want to end up replying to the same tweet twice
-        raise e
-    except TooManyMentionsError as e:
+        return mentions
+    except TooManyMentionsError as to_many_mentions_err:
         # Possibly DOS type attack. Handle what we can
-        LOGGER.log_error(e)
+        Logger.log_error(filename=ERROR_LOGS, message=to_many_mentions_err)
         return mentions[MENTION_LIMIT:] # MIGHT BE mentions[MENTION_LIMIT:] FIFO vs LIFO
+    except (FileIOError, LastSeenIDError) as custom_err:
+        # don't proceed. We don't want to end up replying to the same tweet twice
+        raise custom_err
     except Exception as e:
         raise GetMentionsError(since=since, error=e)
 
-def is_reply_to_me(mention):
-    return mention.in_reply_to_status_id == BOT_ID
+def is_reply_to_me(user_id):
+    return user_id == BOT_ID
 
 def handle_isbn(mention, isbn):
-    try:
-        edition = InternetArchive.get_edition(isbn)
-        if edition:
-            if edition.get("availability"):
-                return Tweet.edition_available(mention, edition)
+    edition = InternetArchive.get_edition(isbn)
+    if edition:
+        if edition.get("availability"):
+            return Tweet.edition_available(mention, edition)
 
-            work = InternetArchive.find_available_work(edition)
-            if work:
-                return Tweet.work_available(mention, work)
-            return Tweet.edition_unavailable(mention, edition)
-    except GetEditionError:
-        pass #failed to get the edition
-    except FindAvailableWorkError:
-        pass #failed to find available work
-    except SendTweetError:
-        pass #failed to send tweet
+        work = InternetArchive.find_available_work(edition)
+        if work:
+            return Tweet.work_available(mention, work)
+        return Tweet.edition_unavailable(mention, edition)
 
 def reply_to_tweets():
     try:
         mentions = get_latest_mentions()
-        
         for mention in reversed(mentions):
             try:
-                print(str(mention.id) + ': ' + mention.full_text)
+                print(str(mention.id) + ': ' + mention.full_text.replace("\n", " "))
                 # print(json.dumps(mention._json, indent=2))
 
                 set_last_seen_id(mention)
                 
                 isbns = ISBNFinder.find_isbns(mention.full_text)
+
                 if not isbns and mention.in_reply_to_status_id: # no isbn found in tweet. Check the parent tweet
                     parent_status_id = mention.in_reply_to_status_id
                     parent_tweet = get_tweet(parent_status_id)
                     isbns = ISBNFinder.find_isbns(parent_tweet.full_text)
-                    if not isbns and parent_tweet.user.id == API.me().id: # reply to me
-                        print("is reply to me")
+                    if not isbns and  is_reply_to_me(parent_tweet.user.id):
+                        # is a reply to me, don't answer
                         continue
                 if isbns:
                     for isbn in isbns:
                         try:
                             handle_isbn(mention, isbn)
-                        except:
-                            pass 
+                        except (GetEditionError, FindAvailableWorkError, SendTweetError) as custom_err:
+                            Logger.log_error(filename=ERROR_LOGS, message=custom_err)
+                            continue 
+                        except Exception:
+                            Logger.log_error(filename=ERROR_LOGS, message=traceback.format_exc())
+                            continue
                     continue
                 Tweet.edition_not_found(mention)
-            except FileIOError:
-                pass # failed to set last seen id - try again or skip mention
-            except FindISBNError:
-                pass # ISBN finder failed - try again or skip mention
-            except GetTweetError:
-                pass # Failed to get the parent tweet - try again or skip mention
-    except FileIOError:
-        pass # failed to read the last seen ID - Retry
-    except LastSeenIDError as e:
-        pass # Last seen id doesnt make sense - STOP
-    except GetMentionsError:
-        pass # Failed to get mentions through Tweepy - Retry
+            except (FileIOError, FindISBNError, GetTweetError) as custom_err:
+                Logger.log_error(filename=ERROR_LOGS, message=custom_err)
+                try:
+                    Tweet.internal_error(mention)
+                except SendTweetError as send_tweet_error:
+                    Logger.log_error(filename=ERROR_LOGS, message=send_tweet_error)
+                finally:
+                    continue
+            except Exception:
+                Logger.log_error(filename=ERROR_LOGS, message=traceback.format_exc())
+                try:
+                    Tweet.internal_error(mention)
+                except SendTweetError as send_tweet_error:
+                    Logger.log_error(filename=ERROR_LOGS, message=send_tweet_error)
+                finally:
+                    continue
+    except (FileIOError, LastSeenIDError, GetMentionsError) as custom_err:
+        Logger.log_error(filename=ERROR_LOGS, message=custom_err)
+    except Exception:
+        Logger.log_error(filename=ERROR_LOGS, message=traceback.format_exc())
 
 
 if __name__ == "__main__":
-    # authenticate()
-    # print("BOT: {0} running...".format(BOT_NAME))
-    # print(get_tweet("4.0"))
-    # while True:
-    #     reply_to_tweets()
-    #     time.sleep(SLEEP_TIME)
-
-    print("ISBNS:", ISBNFinder.find_isbns("https://www.goodreads.com/book/show/foobar"))
-
+    try:
+        authenticate()
+    except TweepyAuthenticationError as auth_error:
+        Logger.log_error(filename=ERROR_LOGS, message=auth_error)
+    else:
+        print("BOT: {0} running...".format(BOT_NAME))
+        while True:
+            reply_to_tweets()
+            time.sleep(SLEEP_TIME)
+    finally:
+        print("BOT: {0} stopped...".format(BOT_NAME))
