@@ -73,6 +73,7 @@ class MentionHandler(threading.Thread):
                     LOCK.acquire()
                     print("\t(!) Not Replying")
                     LOCK.release()
+                    Logger.log_tweet(filename=TWEET_LOGS, original_mention=self.mention.text, tweet="Not Replying")
                     return
             if isbns:
                 for isbn in isbns:
