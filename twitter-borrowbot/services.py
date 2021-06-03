@@ -126,24 +126,3 @@ class InternetArchive:
         except Exception as e:
             raise FindAvailableWorkError(book=book, error=e)
 
-
-class Logger:
-
-    @staticmethod
-    def log_tweet(filename, original_mention, tweet):
-        LOCK.acquire()
-        f = open(filename, "a")
-        f.write(str(datetime.datetime.now()) + " | ")
-        f.write(str(original_mention.replace("\n", " ")) + " | ")
-        f.write(str(tweet.replace("\n", " ")) + "\n")
-        f.close()
-        LOCK.release()
-        
-    @staticmethod
-    def log_error(filename, message):
-        LOCK.acquire()
-        f = open(filename, "a")
-        f.write(str(datetime.datetime.now()) + " | ")
-        f.write(str(message) + "\n")
-        f.close()
-        LOCK.release()

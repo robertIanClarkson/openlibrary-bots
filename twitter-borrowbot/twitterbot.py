@@ -3,52 +3,48 @@ import os
 import threading
 import dotenv
 import traceback
-import time
+import logging
 
-from services import ISBNFinder, InternetArchive, Logger
-from TwitterBotErrors import GetTweetError, GetEditionError, FindAvailableWorkError, SendTweetError, FileIOError, FindISBNError
+from services import ISBNFinder, InternetArchive
+from TwitterBotErrors import *
 
 ACTIONS = ('read', 'borrow', 'preview')
 READ_OPTIONS = dict(zip(InternetArchive.MODES, ACTIONS))
 
-TWEET_LOGS = "./logs/tweet_logs.txt" 
-ERROR_LOGS = "./logs/error_logs.txt"
+LOG_FILE = "twitterbot.log"
 
-BOT_NAME = None
-BOT_ID = None
+TWITTER_BOT_NAME = "@applesauce_bob"
 
 LOCK = threading.Lock()
 
 class BorrowBot(tweepy.StreamListener):
     def on_status(self, mention):
-        print(("(!) New Mention: {0}".format(mention.text)).replace("\n", " "))    
+        logging.info("MENTION FROM: " + mention.user.screen_name + " --> " + mention.text.replace("\n", " "))
         thread = MentionHandler(mention)
+        # thread.daemon = True
         thread.start()
 
     def on_error(self, status_code):
-        msg = "(x) ERROR: {0}".format(status_code)
-        # print(msg)
-        Logger.log_error(filename=ERROR_LOGS, message=msg)
-
+        logging.critical(str(status_code))
 class MentionHandler(threading.Thread):
     def __init__(self, mention):
         threading.Thread.__init__(self)
         self.mention = mention
     
     def __get_tweet(self, status_id):
-                if not isinstance(status_id, int) and not isinstance(status_id, str):
-                    raise GetTweetError(id=status_id, error="Status ID needs to be an integer or a string")
-                if isinstance(status_id, str) and not status_id.isdecimal():
-                    raise GetTweetError(id=status_id, error="String status ID must be in integer form")
-                try:
-                    return API.get_status(
-                        id=status_id,
-                        tweet_mode="extended")
-                except Exception as e:
-                    raise GetTweetError(id=status_id, error=e)
+        if not isinstance(status_id, int) and not isinstance(status_id, str):
+            raise GetTweetError(id=status_id, error="Status ID needs to be an integer or a string")
+        if isinstance(status_id, str) and not status_id.isdecimal():
+            raise GetTweetError(id=status_id, error="String status ID must be in integer form")
+        try:
+            return API.get_status(
+                id=status_id,
+                tweet_mode="extended")
+        except Exception as e:
+            raise GetTweetError(id=status_id, error=e)
 
     def __is_reply_to_me(self, user_id):
-            return user_id == BOT_ID
+        return user_id == API.me().id
 
     def __handle_isbn(self, isbn):
         edition = InternetArchive.get_edition(isbn)
@@ -67,32 +63,31 @@ class MentionHandler(threading.Thread):
             if not isbns and self.mention.in_reply_to_status_id: # no isbn found in tweet. Check the parent tweet
                 parent_status_id = self.mention.in_reply_to_status_id
                 parent_tweet = self.__get_tweet(parent_status_id)
+                logging.info("PARENT: " + parent_tweet.full_text.replace("\n", " "))
                 isbns = ISBNFinder.find_isbns(parent_tweet.full_text) # for some reason there is a ".text" and ".full_text" within tweepy Status obj
                 if not isbns and self.__is_reply_to_me(parent_tweet.user.id):
                     # is a reply to me, don't answer
-                    LOCK.acquire()
-                    print("\t(!) Not Replying")
-                    LOCK.release()
-                    Logger.log_tweet(filename=TWEET_LOGS, original_mention=self.mention.text, tweet="Not Replying")
+                    logging.info("RESPONSE: not replying")
                     return
             if isbns:
+                logging.info("ISBN: " + str(isbns))
                 for isbn in isbns:
                     try:
                         self.__handle_isbn(isbn)
                     except (GetEditionError, FindAvailableWorkError, SendTweetError) as custom_err:
-                        Logger.log_error(filename=ERROR_LOGS, message=custom_err)
+                        logging.warning(custom_err)
                         continue 
-                    except Exception:
-                        Logger.log_error(filename=ERROR_LOGS, message=traceback.format_exc())
+                    except Exception as e:
+                        logging.exception(e)
                         continue
             else:
                 Tweet.edition_not_found(self.mention)
-        except (FileIOError, FindISBNError, GetTweetError) as custom_err:
-            Logger.log_error(filename=ERROR_LOGS, message=custom_err)
+        except (FindISBNError, GetTweetError) as custom_err:
+            logging.critical(custom_err)
             try:
                 Tweet.internal_error(self.mention)
             except SendTweetError as send_tweet_error:
-                Logger.log_error(filename=ERROR_LOGS, message=send_tweet_error)
+                logging.critical(send_tweet_error)
 
 
 class Tweet:
@@ -101,10 +96,8 @@ class Tweet:
         if not mention.user.screen_name or not mention.id:
             raise SendTweetError(mention=mention, error="Given mention is missing either a screen name or a status ID")
         msg = "Hi 👋 @%s %s" % (mention.user.screen_name, message)
-        if not debug:  
-            LOCK.acquire()
-            print("\t(!) Responding:", msg)   
-            LOCK.release()    
+        logging.info("RESPONSE: " + msg.replace("\n", " "))
+        if not debug:     
             try:
                 LOCK.acquire()
                 API.update_status(
@@ -119,9 +112,6 @@ class Tweet:
             LOCK.acquire()
             print(msg.replace("\n", " "))
             LOCK.release()
-        LOCK.acquire()
-        Logger.log_tweet(filename=TWEET_LOGS, original_mention=mention.text, tweet=msg)
-        LOCK.release()
 
     @classmethod
     def edition_available(cls, mention, edition):
@@ -176,29 +166,22 @@ class Tweet:
 if __name__ == "__main__":
     print("(*) Authenticating...")
     dotenv.load_dotenv()
-
+    if not os.environ.get('CONSUMER_KEY') or not os.environ.get('CONSUMER_SECRET') or not os.environ.get('ACCESS_TOKEN') or not os.environ.get('ACCESS_TOKEN_SECRET'):
+        raise TweepyAuthenticationError(error="Missing .env file or missing necessary keys for authentication")
     auth = tweepy.OAuthHandler(
         os.environ.get('CONSUMER_KEY'),
         os.environ.get('CONSUMER_SECRET')
     )
-
     auth.set_access_token(
         os.environ.get('ACCESS_TOKEN'),
         os.environ.get('ACCESS_TOKEN_SECRET')
     )
-
     API = tweepy.API(auth, wait_on_rate_limit=True)
-    
     print("(*) Authenticated!")
-
-    BOT_NAME = '@' + API.me().screen_name
-    BOT_ID = API.me().id
-
+    print("(*) Setting up logger")
+    logging.basicConfig(filename=LOG_FILE, filemode='a', level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')   
     print("(*) Listening...")
-    try:
-        bot = tweepy.Stream(auth = API.auth, listener=BorrowBot()) 
-        bot.filter(track=[BOT_NAME])
-    except:
-        Logger.log_error(filename=ERROR_LOGS, message=traceback.format_exc())
+    bot = tweepy.Stream(auth = API.auth, listener=BorrowBot()) 
+    bot.filter(track=[TWITTER_BOT_NAME])
 
 
