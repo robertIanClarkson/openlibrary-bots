@@ -88,6 +88,8 @@ class MentionHandler(threading.Thread):
                 Tweet.internal_error(self.mention)
             except SendTweetError as send_tweet_error:
                 logging.critical(send_tweet_error)
+        except Exception as e:
+            logging.exception(e)
 
 
 class Tweet:
