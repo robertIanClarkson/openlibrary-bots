@@ -2,7 +2,6 @@ import tweepy
 import os
 import threading
 import dotenv
-import traceback
 import logging
 
 from services import ISBNFinder, InternetArchive
@@ -154,7 +153,7 @@ class Tweet:
             "sorry, I was unable to spot any books! " +
             "Learn more about how I work here: " +
             "https://github.com/internetarchive/openlibrary-bots" +
-            "\nIn short, I need an ISBN10, ISBN13, or Amazon link"
+            "\nIn short, I need an ISBN number, Amazon link, or Goodreads link"
         )
 
     @classmethod
@@ -164,7 +163,7 @@ class Tweet:
             "Woops, something broke over here! " +
             "Learn more about how I work here: " +
             "https://github.com/internetarchive/openlibrary-bots" +
-            "\nIn short, I need an ISBN10, ISBN13, or Amazon Link"
+            "\nIn short, I need an ISBN number, Amazon link, or Goodreads link"
         )
 
 if __name__ == "__main__":
