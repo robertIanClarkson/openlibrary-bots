@@ -181,7 +181,7 @@ if __name__ == "__main__":
     API = tweepy.API(auth, wait_on_rate_limit=True)
     print("(*) Authenticated!")
     print("(*) Setting up logger")
-    logging.basicConfig(filename=LOG_FILE, filemode='a', level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')   
+    logging.basicConfig(filename=LOG_FILE, filemode='a', level=logging.INFO, format='%(relativeCreated)6d | %(threadName)s | %(asctime)s | %(levelname)s | %(message)s')   
     print("(*) Listening...")
     bot = tweepy.Stream(auth = API.auth, listener=BorrowBot()) 
     bot.filter(track=[TWITTER_BOT_NAME])
