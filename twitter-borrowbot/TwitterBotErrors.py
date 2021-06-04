@@ -8,46 +8,6 @@ class TweepyAuthenticationError(Error):
     def __str__(self):
         return "{0}: Failed to Authenticate with Twitter through Tweepy >> {1}".format(type(self).__name__, self.error)
 
-class FileIOError(Error):
-    def __init__(self, file=None, write=None, error="Error not provided"):
-        self.file = file
-        self.write = write
-        self.error = error
-
-    def __str__(self):
-        if self.write:
-            return "{0}: Failed to write '{1}' to file '{2}' >> {3}".format(type(self).__name__, self.write, self.file, self.error) 
-        return "{0}: Failed to read from file '{1}' >> {2}".format(type(self).__name__, self.file, self.error)
-
-    
-class LastSeenIDError(Error):
-    def __init__(self, file=None, id=None):
-        self.file = file
-        self.id = id
-
-    def __str__(self):
-        return "{0}: The folowing ID '{1}' from file '{2}' is either too short or is not numeric".format(type(self).__name__, self.id, self.file)
-
-
-class GetMentionsError(Error):
-    def __init__(self, since=None, error=None):
-        self.since = since
-        self.error = error
-
-    def __str__(self):
-        return "{0}: Tweepy failed to get the lastest mentions since '{1}' >> {2}".format(type(self).__name__, self.since, self.error)
-
-
-class TooManyMentionsError(Error):
-    def __init__(self, since=None, length=None, limit=None):
-        self.since = since
-        self.length = length
-        self.limit = limit
-
-    def __str__(self):
-        return "{0}: At '{1}', Tweepy pulled '{2}' mentions when the limit is '{3}' >> {4} too many mentions".format(type(self).__name__, self.since, self.length, self.limit, (self.length - self.limit))
-
-
 class GoodreadsError(Error):
     def __init__(self, url=None, error=None):
         self.url=url
