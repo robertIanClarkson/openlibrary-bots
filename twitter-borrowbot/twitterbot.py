@@ -17,6 +17,8 @@ TWITTER_BOT_NAME = "@applesauce_bob"
 
 LOCK = threading.Lock()
 
+API = None
+
 class BorrowBot(tweepy.StreamListener):
     def on_status(self, mention):
         logging.info("MENTION FROM: " + mention.user.screen_name + " --> " + mention.text.replace("\n", " "))
@@ -170,15 +172,19 @@ if __name__ == "__main__":
     dotenv.load_dotenv()
     if not os.environ.get('CONSUMER_KEY') or not os.environ.get('CONSUMER_SECRET') or not os.environ.get('ACCESS_TOKEN') or not os.environ.get('ACCESS_TOKEN_SECRET'):
         raise TweepyAuthenticationError(error="Missing .env file or missing necessary keys for authentication")
-    auth = tweepy.OAuthHandler(
-        os.environ.get('CONSUMER_KEY'),
-        os.environ.get('CONSUMER_SECRET')
-    )
-    auth.set_access_token(
-        os.environ.get('ACCESS_TOKEN'),
-        os.environ.get('ACCESS_TOKEN_SECRET')
-    )
-    API = tweepy.API(auth, wait_on_rate_limit=True)
+    try:
+        auth = tweepy.OAuthHandler(
+            os.environ.get('CONSUMER_KEY'),
+            os.environ.get('CONSUMER_SECRET')
+        )
+        auth.set_access_token(
+            os.environ.get('ACCESS_TOKEN'),
+            os.environ.get('ACCESS_TOKEN_SECRET')
+        )
+        API = tweepy.API(auth, wait_on_rate_limit=True)
+        API.me() # this tests auth
+    except Exception as e:
+        raise TweepyAuthenticationError(error=e)
     print("(*) Authenticated!")
     print("(*) Setting up logger")
     logging.basicConfig(filename=LOG_FILE, filemode='a', level=logging.INFO, format='%(relativeCreated)6d | %(threadName)s | %(asctime)s | %(levelname)s | %(message)s')   
