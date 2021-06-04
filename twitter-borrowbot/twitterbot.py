@@ -20,7 +20,7 @@ API = None
 
 class BorrowBot(tweepy.StreamListener):
     def on_status(self, mention):
-        logging.info("MENTION FROM: " + mention.user.screen_name + " --> " + mention.text.replace("\n", " "))
+        logging.info("MENTION FROM: " + mention.user.screen_name + " ID: " + str(mention.id) + " --> " + mention.text.replace("\n", " "))
         thread = MentionHandler(mention)
         # thread.daemon = True
         thread.start()
